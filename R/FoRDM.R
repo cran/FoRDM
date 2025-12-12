@@ -11,7 +11,7 @@ NULL
 
 #Suppress notes about global variables used in dplyr/ggplot2
 utils::globalVariables(c(
-  "regret_scalar", "regret_quantile", "scenario", 
+  "regret_scalar", "regret_quantile", 
   "euclidean_distance", "management", "satisficing",
   "robustness_level", "value", "values", "all_satisfied",
   "robustness"
@@ -200,7 +200,7 @@ fordm_analysis_regret <- function(fordm_table, objectives, robustness = 0.9, met
       dplyr::group_by(.data[[management_col]]) %>%
       dplyr::slice_min(abs(regret_scalar - regret_quantile), n = 1, with_ties = FALSE) %>%
       dplyr::ungroup() %>%
-      dplyr::select(-c(scenario,regret_quantile))
+      dplyr::select(-c(all_of(sow_col),regret_quantile))
   } else if(method == "CVaR"){
     #CVaR
     df_final <- df_quantile %>%
@@ -1076,7 +1076,10 @@ robustness_tradeoff_analysis <- function(fordm_table, objectives) {
   switch_indices <- match(best_mgmt_tracker_unique, best_mgmt_tracker)[-1]
   #only include robustness recommendations until 50% robustness
   for(i in seq_along(switch_indices)){
-    if(switch_indices[i]>11) switch_indices <- switch_indices[-i]
+    if(switch_indices[i]>11){
+      switch_indices <- switch_indices[-i]
+      best_mgmt_tracker_unique <- best_mgmt_tracker_unique[-(i+1)]
+    }
   }
   #Add first output for initial management
   if(length(switch_indices) >= 1){

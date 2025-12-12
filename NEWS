@@ -1,0 +1,5 @@
+CHANGES IN VERSION 1.0.1
+
+  o Fixed SOW column reference in `fordm_analysis_regret()` to allow custom SOW columns.
+
+  o Corrected robustness range in `robustness_tradeoff_analysis()` plots to match analyzed levels (50–100%).
