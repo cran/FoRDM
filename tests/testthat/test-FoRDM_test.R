@@ -15,8 +15,7 @@ test_that("FoRDM workflow & visualization runs without error", {
       df,
       management = "management",
       sow        = "scenario",
-      time       = "year",
-      time_unit  = "years"
+      time       = "year"
     )
     
     objectives_regret <- build_objectives_regret(

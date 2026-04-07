@@ -45,14 +45,13 @@ Example column structure:
 ## Functions
 
 ### **build_fordm_table()**
-Transforms a given input file (`data.frame`) into the required FoRDM input format. Identifies columns for management, SOW (state-of-world), and time, treating all other columns as objectives. Also needs definition of the time unit.
+Transforms a given input file (`data.frame`) into the required FoRDM input format. Identifies columns for management, SOW (state-of-world), and time, treating all other columns as objectives.
 
 **Inputs**
 - `data`: `data.frame` containing the input data.  
 - `management`: name of the management column in the input data.  
 - `sow`: name of the SOW (state-of-world) column in the input data.  
 - `time`: name of the time column in the input data.
-- `time_unit`: unit of time used in the time column. Options are "years" (default) or "decades". 
 
 **Output**
 - A list containing the formatted table for analysis, including the input data, mapping for identification of columns, and objective columns.
@@ -175,11 +174,14 @@ Creates a parallel coordinates plot showing SOW (State-of-the-World) performance
 ---
 
 ### **robustness_tradeoff_analysis()**
-Explores trade-offs when relaxing robustness for better performance in regret-based FoRDM analysis. Sweeps robustness levels (0-100%), selects the optimal management at each level, tracks switches in optimal management, and summarizes marginal benefits/losses per objective.
+Explores trade-offs when relaxing robustness for better performance in regret-based FoRDM analysis. Sweeps robustness levels, selects the optimal management at each level, tracks switches in optimal management, and summarizes marginal benefits/losses per objective.
 
 **Inputs**
 - `fordm_table`: output from `build_fordm_table()`.  
-- `objectives`: output from `build_objectives_regret()`.  
+- `objectives`: output from `build_objectives_regret()`. 
+- `robustness_min`: Minimum robustness level (default: 0.0).
+- `robustness_max`: Maximum robustness level (default: 1.0).
+- `robustness_step`: Step size for robustness levels (default: 0.05).
 
 **Output**
 - A `list` with:
@@ -197,7 +199,7 @@ library(FoRDM)
 df <- read.csv("YOUR_DATA.csv")
 
 #Define data frame structure for processing in FoRDM
-fordm_table <- build_fordm_table(df, management="management", sow="scenario", time="decade", time_unit = "years")
+fordm_table <- build_fordm_table(df, management="management", sow="scenario", time="decade")
 
 #Regret based approach
 #Define objectives

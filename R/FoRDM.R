@@ -7,6 +7,7 @@
 #' @importFrom stats quantile as.formula ecdf
 #' @importFrom emoa nondominated_points
 #' @importFrom utils globalVariables
+#' @importFrom RColorBrewer brewer.pal
 NULL
 
 #Suppress notes about global variables used in dplyr/ggplot2
@@ -24,12 +25,11 @@ utils::globalVariables(c(
 #' @param management The name of the management column.
 #' @param sow The name of the state-of-the-worlds (SOW) column.
 #' @param time The name of the time column.
-#' @param time_unit The unit of time used in the time column. Options are "years" (default) or "decades". 
 #' 
 #' @return A list with the processed data for further use in the FoRDM analysis, including the input data, mapping for identification of columns and objective columns.
 #' 
 #' @export
-build_fordm_table <- function(data, management, sow, time, time_unit = "years") {
+build_fordm_table <- function(data, management, sow, time) {
   stopifnot(management %in% names(data))
   stopifnot(sow %in% names(data))
   stopifnot(time %in% names(data))
@@ -37,17 +37,10 @@ build_fordm_table <- function(data, management, sow, time, time_unit = "years") 
   obj_cols <- setdiff(names(data), c(management, sow, time))
   if (length(obj_cols) == 0) stop("No objective columns found.")
   
-  # Validate time_unit
-  valid_units <- c("years", "decades")
-  if (!time_unit %in% valid_units) {
-    stop(sprintf("time_unit must be one of: %s", paste(valid_units, collapse = ", ")))
-  }
-  
   list(
     data = data,
     mapping = list(management = management, sow = sow, time = time),
-    objectives = obj_cols,
-    time_unit = time_unit
+    objectives = obj_cols
   )
 }
 
@@ -95,16 +88,12 @@ build_objectives_regret <- function(names,
 }
 
 #Internal function for calculating time aggregation and discounting
-time_aggregation_fun <- function(x, t, timeagg, d, time_unit = "years") {
+time_aggregation_fun <- function(x, t, timeagg, d) {
   #Time from start
   time_start <- min(t, na.rm = TRUE)
   time_from_start <- t - time_start
   #Convert to years for discounting
-  if (time_unit == "decades") { #e.g., 1,2,3 -> 10,20,30
-    time_in_years <- time_from_start * 10
-  } else { #years
-    time_in_years <- time_from_start
-  }
+  time_in_years <- time_from_start
   
   if (timeagg == "sum") {
     sum(x / (1 + d)^time_in_years, na.rm = TRUE)
@@ -155,7 +144,7 @@ fordm_analysis_regret <- function(fordm_table, objectives, robustness = 0.9, met
       ~ {
         timeagg <- objectives$time_aggregation[obj_col == dplyr::cur_column()]
         disc_rate <- objectives$discount_rate[obj_col == dplyr::cur_column()]
-        time_aggregation_fun(.x, data[[time_col]][dplyr::cur_group_rows()], timeagg, disc_rate, fordm_table$time_unit)
+        time_aggregation_fun(.x, data[[time_col]][dplyr::cur_group_rows()], timeagg, disc_rate)
       }
     ),
     .groups = "drop"
@@ -207,8 +196,8 @@ fordm_analysis_regret <- function(fordm_table, objectives, robustness = 0.9, met
       dplyr::group_by(.data[[management_col]]) %>%
       dplyr::filter(regret_scalar >= regret_quantile) %>%
       dplyr::summarise(
-        dplyr::across(starts_with("regret_"), ~ mean(.x, na.rm = TRUE)),
         dplyr::across(all_of(obj_col), ~ mean(.x, na.rm = TRUE)),
+        dplyr::across(starts_with("regret_"), ~ mean(.x, na.rm = TRUE)),
         .groups = "drop"
       )%>%
       dplyr::select(-c(regret_quantile))
@@ -218,8 +207,7 @@ fordm_analysis_regret <- function(fordm_table, objectives, robustness = 0.9, met
   tolerance <- 0.01 #1%
   min_regret <- min(df_final$regret_scalar, na.rm = TRUE)
   optimal <- df_final %>%
-    dplyr::filter(regret_scalar <= min_regret * (1 + tolerance)) %>%
-    dplyr::select(-c(regret_scalar))
+    dplyr::filter(regret_scalar <= min_regret * (1 + tolerance))
 
   #6. Calculate Pareto front based on regret per objective
   indicator_columns <- grep('^regret_', names(df_final), value = TRUE)
@@ -307,7 +295,7 @@ fordm_analysis_satisficing <- function(fordm_table, objectives, robustness = 0.9
       ~ {
         timeagg <- objectives$time_aggregation[obj_col == dplyr::cur_column()]
         disc_rate <- objectives$discount_rate[obj_col == dplyr::cur_column()]
-        time_aggregation_fun(.x, data[[time_col]][dplyr::cur_group_rows()], timeagg, disc_rate, fordm_table$time_unit)
+        time_aggregation_fun(.x, data[[time_col]][dplyr::cur_group_rows()], timeagg, disc_rate)
       }
     ),
     .groups = "drop"
@@ -479,17 +467,20 @@ visualize_fordm_2d <- function(analysis_output, x, y, fordm_method) {
       ) +
       ggplot2::ylim(y_min, y_max) +
       ggplot2::xlim(x_min, x_max) +
-      scale_fill_gradientn(
-        colors = c("red", "yellow", "#d1d63b"),
-        values = c(0, 0.8, 1),
+      ggplot2::scale_fill_gradientn(
+        colors = RColorBrewer::brewer.pal(n = 10, name = 'RdYlGn'),
+        values = seq(0, 1, length.out = 10),
         limits = c(60, 100)) +
       ggplot2::theme_bw() +
       ggplot2::theme(
         plot.title = ggplot2::element_text(size = 17, face = "bold"),
+        plot.subtitle = ggplot2::element_text(size = 15),
         axis.title.x = ggplot2::element_text(size = 16),
         axis.title.y = ggplot2::element_text(size = 16),
         axis.text.x = ggplot2::element_text(size = 16),
-        axis.text.y = ggplot2::element_text(size = 16)
+        axis.text.y = ggplot2::element_text(size = 16),
+        legend.title = ggplot2::element_text(size = 16),
+        legend.text = ggplot2::element_text(size = 15)
       )
   } else if(fordm_method == "regret"){
     me <- analysis_output$method
@@ -503,7 +494,11 @@ visualize_fordm_2d <- function(analysis_output, x, y, fordm_method) {
       subtitle <- paste0("CVaR per objective of ",(1-ro)*100,"% worst SOWs")
     }
     ggplot2::ggplot(df, ggplot2::aes(x = .data[[x]], y = .data[[y]])) +
-      ggplot2::geom_point(shape = 21, size = 8, fill = "#d1d63b", color = "black", stroke = 1, alpha = 0.6) +
+      ggplot2::geom_point(aes(fill=ro),shape = 21, size = 8, color = "black", stroke = 1, alpha = 0.6)+
+      scale_fill_gradientn(
+        colors = RColorBrewer::brewer.pal(n = 10, name = "RdYlGn"),
+        limits = c(0, 1)
+      )+
       ggplot2::geom_text(ggplot2::aes(label = .data[["management"]]), hjust = 0.5, vjust = -0.85, size = 5) +
       ggplot2::labs(
         title = title,
@@ -516,10 +511,12 @@ visualize_fordm_2d <- function(analysis_output, x, y, fordm_method) {
       ggplot2::theme_bw() +
       ggplot2::theme(
         plot.title = ggplot2::element_text(size = 17, face = "bold"),
+        plot.subtitle = ggplot2::element_text(size = 15),
         axis.title.x = ggplot2::element_text(size = 16),
         axis.title.y = ggplot2::element_text(size = 16),
         axis.text.x = ggplot2::element_text(size = 16),
-        axis.text.y = ggplot2::element_text(size = 16)
+        axis.text.y = ggplot2::element_text(size = 16),
+        legend.position = "none"
       )
   } else stop("Unknown fordm method")
 }
@@ -553,6 +550,10 @@ visualize_fordm_3d <- function(analysis_output, x, y, z, fordm_method) {
     ro <- analysis_output$robustness
     title <- "3D FoRDM Pareto Front (Satisficing)"
     subtitle <- paste0("objective values at ",ro*100,"% robustness")
+    color <- RColorBrewer::brewer.pal(10, "RdYlGn")
+    colorscale <- lapply(seq_along(color), function(i) {
+      list((i - 1) / (length(color) - 1), color[i])
+    })
     plotly::plot_ly(
       df,
       x = ~.data[[x]],
@@ -565,8 +566,8 @@ visualize_fordm_3d <- function(analysis_output, x, y, z, fordm_method) {
         symbol = 'circle',
         line = list(width = 1, color = 'black'),
         color = ~satisficing*100,
-        colorscale = list(c(0, "red"),c(0.8,"yellow"), c(1, "#d1d63b")),
-        cmin = 60,
+        colorscale = colorscale,
+        cmin = 0,
         cmax = 100,
         colorbar = list(title = "robustness [%]",
                         titlefont = list(size = 15),
@@ -606,6 +607,8 @@ visualize_fordm_3d <- function(analysis_output, x, y, z, fordm_method) {
       title <- "3D FoRDM Pareto Front (CVaR)"
       subtitle <- paste0("CVaR per objective of ", (1-ro)*100, "% worst SOWs")
     }
+    color <- RColorBrewer::brewer.pal(10, "RdYlGn")
+    ro_color <- color[round(ro * (9)) + 1 ]
     plotly::plot_ly(
       df,
       x = ~.data[[x]],
@@ -617,7 +620,7 @@ visualize_fordm_3d <- function(analysis_output, x, y, z, fordm_method) {
         size = 11,
         symbol = 'circle',
         line = list(width = 1, color = 'black'),
-        color = '#d1d63b',
+        color = ro_color,
         opacity = 0.8
       ),
       text = ~.data[["management"]],
@@ -638,6 +641,7 @@ visualize_fordm_3d <- function(analysis_output, x, y, z, fordm_method) {
         ),
         font = list(size = 14.5),
         margin = list(t = 10, b = 40, l = 20, r = 20),
+        showlegend = FALSE,
         title = list(text = paste(title, if(!is.null(subtitle)) paste0("<br><sub>", subtitle, "</sub>")), y = 0.95)
       )
   } else stop("Unkown fordm method")
@@ -673,6 +677,8 @@ visualize_fordm_parcoord <- function(analysis_output, fordm_method) {
     })
     me <- analysis_output$method
     ro <- analysis_output$robustness
+    color <- RColorBrewer::brewer.pal(10, "RdYlGn")
+    ro_color <- color[round(ro * (9)) + 1 ]
     if (me == "regretII") {
       title <- "Parallel Coordinates Plot (Regret II)"
       subtitle <- paste0("Pareto front - objective values at ", ro*100, "% robustness")
@@ -684,7 +690,7 @@ visualize_fordm_parcoord <- function(analysis_output, fordm_method) {
     p <- plotly::plot_ly(
       parcoord_data,
       type = "parcoords",
-      line = list(color = "#d1d63b"),
+      line = list(color = ro_color),
       dimensions = dimensions,
       domain = list(
         x = c(0, 1),
@@ -692,9 +698,10 @@ visualize_fordm_parcoord <- function(analysis_output, fordm_method) {
       )
     ) %>%
       plotly::layout(
-        font = list(size = 19),
+        font = list(size = 18),
         title = list(text = paste0(title, "<br><sub>", subtitle, "</sub>"), y = 0.95),
-        margin = list(t = 100, l = 80, r = 80)
+        margin = list(t = 100, l = 80, r = 80),
+        showlegend = FALSE
       )
     
   } else if (fordm_method == "satisficing") {
@@ -713,17 +720,21 @@ visualize_fordm_parcoord <- function(analysis_output, fordm_method) {
     dimensions[[length(dimensions) + 1]] <- list(
       label = "Robustness [%]",
       values = ~satisficing * 100,
-      range = c(60, 100),
-      tickvals = c(60, 100),
-      ticktext = c("60", "100")
+      range = c(0, 100),
+      tickvals = c(0, 100),
+      ticktext = c("0", "100")
     )
+    color <- RColorBrewer::brewer.pal(10, "RdYlGn")
+    colorscale <- lapply(seq_along(color), function(i) {
+      list((i - 1) / (length(color) - 1), color[i])
+    })
     p <- plotly::plot_ly(
       parcoord_data,
       type = "parcoords",
       line = list(
         color = ~satisficing * 100,
-        colorscale = list(c(0, "red"),c(0.8, "yellow"),c(1, "#d1d63b")),
-        cmin = 60,
+        colorscale = colorscale,
+        cmin = 0,
         cmax = 100,
         colorbar = list(title = "Robustness [%]",
                         titlefont = list(size = 15),
@@ -739,7 +750,7 @@ visualize_fordm_parcoord <- function(analysis_output, fordm_method) {
     ) %>%
       plotly::layout(
         title = list(text = "Parallel Coordinates Plot (Satisficing)<br><sub>Pareto front - mean objective values across SOWs</sub>", y = 0.95),
-        font = list(size = 19),
+        font = list(size = 18),
         margin = list(t = 100, l = 80, r = 80)
       )
   } else {
@@ -784,7 +795,7 @@ visualize_fordm_parcoord_management <- function(fordm_table, objectives, fordm_m
       ~ {
         timeagg <- objectives$time_aggregation[obj_col == dplyr::cur_column()]
         disc_rate <- objectives$discount_rate[obj_col == dplyr::cur_column()]
-        time_aggregation_fun(.x, data_mgmt[[time_col]][dplyr::cur_group_rows()], timeagg, disc_rate, fordm_table$time_unit)
+        time_aggregation_fun(.x, data_mgmt[[time_col]][dplyr::cur_group_rows()], timeagg, disc_rate)
       }
     ),
     .groups = "drop"
@@ -800,7 +811,7 @@ visualize_fordm_parcoord_management <- function(fordm_table, objectives, fordm_m
         !!col := {
           timeagg <- objectives$time_aggregation[i]
           disc_rate <- objectives$discount_rate[i]
-          time_aggregation_fun(.data[[col]], data[[time_col]][dplyr::cur_group_rows()], timeagg, disc_rate, fordm_table$time_unit)
+          time_aggregation_fun(.data[[col]], data[[time_col]][dplyr::cur_group_rows()], timeagg, disc_rate)
         },
         .groups = "drop"
       )
@@ -853,16 +864,16 @@ visualize_fordm_parcoord_management <- function(fordm_table, objectives, fordm_m
       ticktext = ticktext
     )
     #plot
+    color <- RColorBrewer::brewer.pal(10, "RdYlGn")
+    colorscale <- lapply(seq_along(color), function(i) {
+      list((i - 1) / (length(color) - 1), color[i])
+    })
     p <- plotly::plot_ly(
       parcoord_data,
       type = 'parcoords',
       line = list(
         color = ~robustness,
-        colorscale = list(
-          c(0, "red"),
-          c(0.8,"yellow"),
-          c(1, "#d1d63b")
-        ),
+        colorscale = colorscale,
         cmin = 0,
         cmax = 100,
         colorbar = list(title = "Robustness [%]",
@@ -884,7 +895,7 @@ visualize_fordm_parcoord_management <- function(fordm_table, objectives, fordm_m
                        management, " - SOWs colored by robustness percentile</sub>"),
           y = 0.95
         ),
-        font = list(size = 19),
+        font = list(size = 18),
         margin = list(t = 100, l = 80, r = 80)
       )
     #satisficing-based calculation
@@ -931,10 +942,8 @@ visualize_fordm_parcoord_management <- function(fordm_table, objectives, fordm_m
       line = list(
         color = ~ifelse(all_satisfied, 1, 0),
         colorscale = list(
-          c(0, "red"),
-          c(0.5, "red"),
-          c(0.5, "#d1d63b"),
-          c(1, "#d1d63b")
+          list(0, "#D73027"),
+          list(1, "#66BD63")
         ),
         cmin = 0,
         cmax = 1,
@@ -942,7 +951,7 @@ visualize_fordm_parcoord_management <- function(fordm_table, objectives, fordm_m
           title = "Status",
           tickmode = "array",
           tickvals = c(0.25, 0.75),
-          ticktext = c("Not Satisfied", "All Satisfied"),
+          ticktext = c("Not Satisfied", "Satisfied"),
           thickness = 20,
           len = 0.5,
           titlefont = list(size = 15),
@@ -962,7 +971,7 @@ visualize_fordm_parcoord_management <- function(fordm_table, objectives, fordm_m
                        management, " - SOWs colored by threshold satisfaction</sub>"),
           y = 0.95
         ),
-        font = list(size = 19),
+        font = list(size = 18),
         margin = list(t = 100, l = 80, r = 80)
       )
     
@@ -980,11 +989,14 @@ visualize_fordm_parcoord_management <- function(fordm_table, objectives, fordm_m
 #'
 #' @param fordm_table Output from build_FoRDM_table().
 #' @param objectives Output from build_objectives_regret().
+#' @param robustness_min Minimum robustness level (default: 0.0 = 0%).
+#' @param robustness_max Maximum robustness level (default: 1.0 = 100%).
+#' @param robustness_step Step size for robustness levels (default: 0.05 = 5%-steps).
 #' 
 #' @return List containing the list of optimal managements at certain robustness levels, and a plot
 #' 
 #' @export
-robustness_tradeoff_analysis <- function(fordm_table, objectives) {
+robustness_tradeoff_analysis <- function(fordm_table, objectives,robustness_min = 0.0, robustness_max = 1.0, robustness_step = 0.05) {
   data <- fordm_table$data
   mapping <- fordm_table$mapping
   management_col <- mapping$management
@@ -1002,7 +1014,7 @@ robustness_tradeoff_analysis <- function(fordm_table, objectives) {
       ~ {
         timeagg <- objectives$time_aggregation[obj_col == dplyr::cur_column()]
         disc_rate <- objectives$discount_rate[obj_col == dplyr::cur_column()]
-        time_aggregation_fun(.x, data[[time_col]][dplyr::cur_group_rows()], timeagg, disc_rate, fordm_table$time_unit)
+        time_aggregation_fun(.x, data[[time_col]][dplyr::cur_group_rows()], timeagg, disc_rate)
       }
     ),
     .groups = "drop"
@@ -1031,8 +1043,11 @@ robustness_tradeoff_analysis <- function(fordm_table, objectives) {
     ) %>%
     dplyr::ungroup()
   
-  #4. Robustness levels (0.5 to 1.0 in 0.05 steps)
-  robustness_range <- seq(1.0, 0.0, by = -0.05)
+  #4. Robustness levels
+  robustness_range <- seq(robustness_max, robustness_min, by = -robustness_step)
+  n_robustness <- length(robustness_range)
+  #index for 50% robustness -> only till here values switches are getting reported
+  idx_50 <- which.min(abs(robustness_range - 0.5))
   
   #5. Loop through robustness levels and track optimal management
   results <- list()
@@ -1076,16 +1091,17 @@ robustness_tradeoff_analysis <- function(fordm_table, objectives) {
   switch_indices <- match(best_mgmt_tracker_unique, best_mgmt_tracker)[-1]
   #only include robustness recommendations until 50% robustness
   for(i in seq_along(switch_indices)){
-    if(switch_indices[i]>11){
+    if(switch_indices[i] > idx_50){
       switch_indices <- switch_indices[-i]
       best_mgmt_tracker_unique <- best_mgmt_tracker_unique[-(i+1)]
     }
   }
+  
   #Add first output for initial management
   if(length(switch_indices) >= 1){
     initial_range <- robustness_range[1:(switch_indices[1]-1)]
   } else{
-    initial_range <- robustness_range[1:21]
+    initial_range <- robustness_range[1:length(robustness_range)]
   }
   initial_row <- as.data.frame(tibble::tibble(
     robustness_range = paste0(min(initial_range), "-", max(initial_range)),
@@ -1097,7 +1113,7 @@ robustness_tradeoff_analysis <- function(fordm_table, objectives) {
     for (si in seq_along(switch_indices)) {
       idx <- switch_indices[si]
       mgmt <- best_mgmt_tracker[idx]
-      benefit_range <- robustness_range[idx:21]
+      benefit_range <- robustness_range[idx:n_robustness]
       loss_range <- robustness_range[1:(idx-1)]
       prev_mgmts <- unique(best_mgmt_tracker[1:(idx - 1)])
       benefit_diffs <- list()
@@ -1111,7 +1127,7 @@ robustness_tradeoff_analysis <- function(fordm_table, objectives) {
         }
       }
       #Benefit for each robustness level and previous management
-      for (i in idx:21) {
+      for (i in idx:n_robustness) {
         val_best <- results[[i]] %>%
           dplyr::filter(.data[[management_col]] == mgmt) %>%
           dplyr::select(all_of(obj_col))
@@ -1157,12 +1173,12 @@ robustness_tradeoff_analysis <- function(fordm_table, objectives) {
         for (obj in obj_col) {
           bdiffs <- benefit_diffs[[prev_mgmt]][[obj]]
           ldiffs <- loss_diffs[[prev_mgmt]][[obj]]
-          benefit_stats[[paste0(prev_mgmt, "_", obj, "_benefit_min")]] <- if(length(bdiffs)) min(bdiffs, na.rm = TRUE) else NA
-          benefit_stats[[paste0(prev_mgmt, "_", obj, "_benefit_mean")]] <- if(length(bdiffs)) mean(bdiffs, na.rm = TRUE) else NA
-          benefit_stats[[paste0(prev_mgmt, "_", obj, "_benefit_max")]] <- if(length(bdiffs)) max(bdiffs, na.rm = TRUE) else NA
-          loss_stats[[paste0(prev_mgmt, "_", obj, "_loss_min")]] <- if(length(ldiffs)) min(ldiffs, na.rm = TRUE) else NA
-          loss_stats[[paste0(prev_mgmt, "_", obj, "_loss_mean")]] <- if(length(ldiffs)) mean(ldiffs, na.rm = TRUE) else NA
-          loss_stats[[paste0(prev_mgmt, "_", obj, "_loss_max")]] <- if(length(ldiffs)) max(ldiffs, na.rm = TRUE) else NA
+          benefit_stats[[paste0(prev_mgmt, "_", obj, "_lowest_benefit")]] <- if(length(bdiffs)) min(bdiffs, na.rm = TRUE) else NA
+          benefit_stats[[paste0(prev_mgmt, "_", obj, "_mean_benefit")]] <- if(length(bdiffs)) mean(bdiffs, na.rm = TRUE) else NA
+          benefit_stats[[paste0(prev_mgmt, "_", obj, "_highest_benefit")]] <- if(length(bdiffs)) max(bdiffs, na.rm = TRUE) else NA
+          loss_stats[[paste0(prev_mgmt, "_", obj, "_lowest_loss")]] <- if(length(ldiffs)) max(ldiffs, na.rm = TRUE) else NA
+          loss_stats[[paste0(prev_mgmt, "_", obj, "_mean_loss")]] <- if(length(ldiffs)) mean(ldiffs, na.rm = TRUE) else NA
+          loss_stats[[paste0(prev_mgmt, "_", obj, "_highest_loss")]] <- if(length(ldiffs)) min(ldiffs, na.rm = TRUE) else NA
         }
       }
   
@@ -1182,7 +1198,7 @@ robustness_tradeoff_analysis <- function(fordm_table, objectives) {
     summary_list <- c(list(initial_row), summary_list)
   } else{
     summary_list <- list(data.frame(
-      robustness_range = paste0("0-1"),
+      robustness_range = paste0(robustness_min," - ",robustness_max),
       optimal_management = best_mgmt_tracker_unique))
   }
   
@@ -1198,25 +1214,26 @@ robustness_tradeoff_analysis <- function(fordm_table, objectives) {
     tidyr::pivot_longer(cols = dplyr::all_of(obj_col), names_to = "objective", values_to = "value")
   #Barplot: mean value per management per objective
   plot <- ggplot2::ggplot(plot_data, ggplot2::aes(x = .data[[management_col]], y = value)) +
-    ggplot2::geom_point(ggplot2::aes(fill = robustness_level*100), shape = 21, color = "black", stroke = 0.1, size = 4) +
+    ggplot2::geom_point(ggplot2::aes(fill = robustness_level*100), shape = 21, alpha=0.8,color = "black", stroke = 0.1, size = 4.4) +
     ggplot2::facet_wrap(~objective, scales = "free_y") +
     ggplot2::labs(
-      title = "Expected Objective Values for Optimal Managements Across Robustness Range (0 - 100%)",
+      title = "Expected Objective Values for Optimal Managements Across Robustness Range",
       x = "Management",
       y = "Objective Value"
     ) +
     ggplot2::theme_bw() +
    ggplot2::scale_fill_gradientn(
-      colors = c("darkred","red", "yellow", "#d1d63b"),
-      values = c(0,0.5,0.7, 1),
-      name = "Robustness [%]") +
+     colors = RColorBrewer::brewer.pal(n = 10, name = "RdYlGn"),
+     name = "Robustness [%]")+
     ggplot2::theme(
-      strip.text = ggplot2::element_text(size = 14, face = "bold"),
+      strip.text = ggplot2::element_text(size = 18, face = "bold"),
       plot.title = ggplot2::element_text(size = 17, face = "bold"),
-      axis.title.x = ggplot2::element_text(size = 16),
-      axis.title.y = ggplot2::element_text(size = 16),
-      axis.text.x = ggplot2::element_text(size = 14, angle = 45, hjust = 1),
-      axis.text.y = ggplot2::element_text(size = 14)
+      axis.title.x = ggplot2::element_text(size = 18),
+      axis.title.y = ggplot2::element_text(size = 18),
+      axis.text.x = ggplot2::element_text(size = 17, angle = 45, hjust = 1),
+      axis.text.y = ggplot2::element_text(size = 17),
+      legend.title = ggplot2::element_text(size = 16),
+      legend.text = ggplot2::element_text(size = 15)
     )
 
   return(list(summary = summary_list, plot = plot))
