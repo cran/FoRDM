@@ -256,7 +256,7 @@ output_rta$plot
 ---
 
 ## Citation
-Djahangard, M. and Yousefpour, R. (2025). FoRDM: Forest Many-Objective Robust Decision Making Toolkit. R package version 1.0.0. doi:10.5281/zenodo.17738074
+Djahangard, M., & Yousefpour, R. (2026). FoRDM: A toolkit for robust many-objective optimization to support forest decision-making under climate change. Ecological Informatics, 97, 103903. https://doi.org/10.1016/j.ecoinf.2026.103903
 
 ## Funding
 This work was funded by the HORIZON EUROPE's project "eco2adapt" (Ecosystem-based Adaptation and Changemaking to Shape, Protect, and Sustain the Resilience of Tomorrow's Forests, Grant no: 101059498).
